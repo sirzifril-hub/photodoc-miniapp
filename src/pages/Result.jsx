@@ -26,10 +26,7 @@ const LAYOUTS = { 1: [1, 1], 2: [1, 2], 4: [2, 2], 6: [2, 3] }
 function CountIcon({ count }) {
   const [cols, rows] = LAYOUTS[count]
   return (
-    <div
-      className="count-icon"
-      style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}
-    >
+    <div className="count-icon" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
       {Array.from({ length: count }).map((_, i) => (
         <div key={i} className="count-square" />
       ))}
@@ -59,15 +56,44 @@ export default function Result() {
     )
   }
 
-  const getUserId = () => {
-    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user?.id
-    if (tgUser) return tgUser
+  // Ждём появления window.Telegram.WebApp.initDataUnsafe.user.id до 5 секунд
+  const waitForTelegramUserId = (timeoutMs = 5000) => {
+    return new Promise((resolve) => {
+      const start = Date.now()
+      const check = () => {
+        const id =
+          window.Telegram?.WebApp?.initDataUnsafe?.user?.id ||
+          window.Telegram?.WebApp?.initDataUnsafe?.user?.id
+        if (id) return resolve(id)
+        if (Date.now() - start > timeoutMs) return resolve(null)
+        setTimeout(check, 150)
+      }
+      check()
+    })
+  }
 
+  const getUserId = async () => {
+    // 1. Ждём Telegram SDK (важно для мобильных!)
+    const tgId = await waitForTelegramUserId(5000)
+    if (tgId) {
+      console.log('[Result] got tgUserId:', tgId)
+      return tgId
+    }
+
+    // 2. Fallback: URL query ?uid=... (если бот передал)
+    const urlUid = new URLSearchParams(window.location.search).get('uid')
+    if (urlUid) {
+      console.log('[Result] got urlUid:', urlUid)
+      return Number(urlUid)
+    }
+
+    // 3. Fallback: localStorage для локального теста
     const saved = localStorage.getItem('debug_user_id')
     if (saved) return Number(saved)
 
+    // 4. Последний шанс — спросить (но это плохой UX, лучше не доводить)
     const input = window.prompt(
-      'Ты в браузере, а не в Telegram.\nВведи свой Telegram user_id (узнать: @userinfobot):',
+      'Не удалось получить данные из Telegram.\nВведи свой Telegram user_id (узнать: @userinfobot):',
     )
     if (!input) return null
     const num = Number(input)
@@ -78,9 +104,9 @@ export default function Result() {
 
   const handleSend = async () => {
     if (!blob) return
-    const userId = getUserId()
+    const userId = await getUserId()
     if (!userId) {
-      setError('Не удалось определить Telegram ID')
+      setError('Не удалось определить Telegram ID. Открой приложение через Telegram-бота.')
       return
     }
 
@@ -123,7 +149,6 @@ export default function Result() {
         Если всё хорошо — выберите формат и нажмите «Отправить».
       </p>
 
-      {/* Миниатюра + инфо о документе */}
       <div className="result-preview">
         <img src={photoUrl} alt="Снимок" className="result-thumb" />
         <div className="result-info">
@@ -158,10 +183,7 @@ export default function Result() {
         <div className="error-box">
           <div className="error-icon">⚠️</div>
           <div className="error-text">{error}</div>
-          <button
-            className="error-retry"
-            onClick={() => setError(null)}
-          >
+          <button className="error-retry" onClick={() => setError(null)}>
             Попробовать снова
           </button>
         </div>
@@ -176,11 +198,7 @@ export default function Result() {
         >
           Переснять
         </button>
-        <button
-          className="primary-btn"
-          onClick={handleSend}
-          disabled={sending}
-        >
+        <button className="primary-btn" onClick={handleSend} disabled={sending}>
           {sending ? 'Отправка...' : 'Отправить →'}
         </button>
       </div>
