@@ -155,7 +155,18 @@ export default function Result() {
       })
     } catch (e) {
       console.error(e)
-      setError(e.message || 'Не удалось отправить. Проверь соединение.')
+      let msg = 'Не удалось отправить. Проверь соединение.'
+      const err = e.message || ''
+      if (err.includes('Failed to fetch') || err.includes('Load failed')) {
+        msg = 'Сервер не отвечает. Проверь интернет и попробуй ещё раз.'
+      } else if (err.includes('timeout') || err.includes('Timeout')) {
+        msg = 'Обработка заняла слишком много времени. Попробуй ещё раз.'
+      } else if (err.includes('413') || err.includes('too large')) {
+        msg = 'Фото слишком большое. Попробуй другое.'
+      } else if (err) {
+        msg = err
+      }
+      setError(msg)
       setSending(false)
     }
   }

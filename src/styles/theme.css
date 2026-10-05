@@ -509,3 +509,11 @@
 .tips-card strong {
   color: #2ea6ff;
 }
+/* Улучшенный success-screen — больше воздуха */
+.success-screen {
+  padding: 32px 24px;
+}
+
+.success-desc {
+  margin-bottom: 20px;
+}
