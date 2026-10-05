@@ -23,8 +23,38 @@ const COUNT_OPTIONS = [
 
 const LAYOUTS = { 1: [1, 1], 2: [1, 2], 4: [2, 2], 6: [2, 3] }
 
+
+// Сжимает фото ДО отправки — экономит трафик и RAM сервера
+function compressImage(blob, maxSide = 1500, quality = 0.85) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      let { width, height } = img
+      const long = Math.max(width, height)
+      if (long > maxSide) {
+        const scale = maxSide / long
+        width = Math.round(width * scale)
+        height = Math.round(height * scale)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, width, height)
+      canvas.toBlob(
+        (out) => resolve(out || blob),
+        'image/jpeg',
+        quality,
+      )
+    }
+    img.onerror = () => resolve(blob)
+    img.src = URL.createObjectURL(blob)
+  })
+}
+
+
 function CountIcon({ count }) {
-  const [cols, rows] = LAYOUTS[count]
+  const [cols] = LAYOUTS[count]
   return (
     <div className="count-icon" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
       {Array.from({ length: count }).map((_, i) => (
@@ -33,6 +63,7 @@ function CountIcon({ count }) {
     </div>
   )
 }
+
 
 export default function Result() {
   const navigate = useNavigate()
@@ -56,14 +87,11 @@ export default function Result() {
     )
   }
 
-  // Ждём появления window.Telegram.WebApp.initDataUnsafe.user.id до 5 секунд
   const waitForTelegramUserId = (timeoutMs = 5000) => {
     return new Promise((resolve) => {
       const start = Date.now()
       const check = () => {
-        const id =
-          window.Telegram?.WebApp?.initDataUnsafe?.user?.id ||
-          window.Telegram?.WebApp?.initDataUnsafe?.user?.id
+        const id = window.Telegram?.WebApp?.initDataUnsafe?.user?.id
         if (id) return resolve(id)
         if (Date.now() - start > timeoutMs) return resolve(null)
         setTimeout(check, 150)
@@ -73,27 +101,17 @@ export default function Result() {
   }
 
   const getUserId = async () => {
-    // 1. Ждём Telegram SDK (важно для мобильных!)
     const tgId = await waitForTelegramUserId(5000)
-    if (tgId) {
-      console.log('[Result] got tgUserId:', tgId)
-      return tgId
-    }
+    if (tgId) return tgId
 
-    // 2. Fallback: URL query ?uid=... (если бот передал)
     const urlUid = new URLSearchParams(window.location.search).get('uid')
-    if (urlUid) {
-      console.log('[Result] got urlUid:', urlUid)
-      return Number(urlUid)
-    }
+    if (urlUid) return Number(urlUid)
 
-    // 3. Fallback: localStorage для локального теста
     const saved = localStorage.getItem('debug_user_id')
     if (saved) return Number(saved)
 
-    // 4. Последний шанс — спросить (но это плохой UX, лучше не доводить)
     const input = window.prompt(
-      'Не удалось получить данные из Telegram.\nВведи свой Telegram user_id (узнать: @userinfobot):',
+      'Не удалось получить данные из Telegram.\nВведи свой Telegram user_id:',
     )
     if (!input) return null
     const num = Number(input)
@@ -106,20 +124,23 @@ export default function Result() {
     if (!blob) return
     const userId = await getUserId()
     if (!userId) {
-      setError('Не удалось определить Telegram ID. Открой приложение через Telegram-бота.')
+      setError('Не удалось определить Telegram ID.')
       return
     }
 
     setSending(true)
     setError(null)
 
-    const fd = new FormData()
-    fd.append('photo', blob, 'photo.jpg')
-    fd.append('user_id', String(userId))
-    fd.append('doc_key', docKey)
-    fd.append('count', String(count))
-
     try {
+      // Сжимаем фото ПЕРЕД отправкой
+      const compressed = await compressImage(blob, 1500, 0.85)
+
+      const fd = new FormData()
+      fd.append('photo', compressed, 'photo.jpg')
+      fd.append('user_id', String(userId))
+      fd.append('doc_key', docKey)
+      fd.append('count', String(count))
+
       const res = await fetch(`${BACKEND_URL}/process`, {
         method: 'POST',
         body: fd,
@@ -128,6 +149,7 @@ export default function Result() {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.detail || `HTTP ${res.status}`)
       }
+
       navigate('/success', {
         state: { count, docTitle: DOCS[docKey] || 'Документ' },
       })
