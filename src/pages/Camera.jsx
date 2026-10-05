@@ -9,19 +9,19 @@ export default function Camera() {
 
   const videoRef = useRef(null)
   const streamRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   const [error, setError] = useState(null)
   const [ready, setReady] = useState(false)
   const [facingMode, setFacingMode] = useState('user')
-  // zoomFactor: 1.0 = без зума, 0.5 = отойти, 2.0 = приблизить
   const [zoom, setZoom] = useState(1.0)
+  const [showTips, setShowTips] = useState(false)
 
   useEffect(() => {
     let cancelled = false
 
     async function startCamera() {
       try {
-        // Без ideal — используем нативное разрешение, без телезума
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode },
           audio: false,
@@ -60,7 +60,6 @@ export default function Camera() {
     const vw = video.videoWidth
     const vh = video.videoHeight
 
-    // Пропорции кадра — такие же, как в овале (3:4)
     const targetRatio = 3 / 4
     let cropW = vw
     let cropH = vw / targetRatio
@@ -68,7 +67,6 @@ export default function Camera() {
       cropH = vh
       cropW = vh * targetRatio
     }
-    // Учитываем zoom: чем больше zoom, тем меньше область кропа
     cropW = cropW / zoom
     cropH = cropH / zoom
 
@@ -93,6 +91,33 @@ export default function Camera() {
       'image/jpeg',
       0.92,
     )
+  }
+
+  // Обработка выбора файла из галереи
+  const handleFileSelect = (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Проверка типа
+    if (!file.type.startsWith('image/')) {
+      alert('Выберите изображение')
+      return
+    }
+
+    // Проверка размера (до 20 МБ)
+    if (file.size > 20 * 1024 * 1024) {
+      alert('Файл слишком большой (макс. 20 МБ)')
+      return
+    }
+
+    // Останавливаем камеру, раз пользователь выбрал из галереи
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+    }
+
+    const url = URL.createObjectURL(file)
+    navigate('/result', { state: { photoUrl: url, blob: file, docKey } })
   }
 
   const handleClose = () => {
@@ -122,9 +147,26 @@ export default function Camera() {
         <p style={{ fontSize: 13 }}>
           Разреши доступ к камере в браузере или открой мини-апп в Telegram.
         </p>
-        <button className="primary-btn" onClick={handleClose}>
+        <button
+          className="primary-btn"
+          onClick={() => fileInputRef.current?.click()}
+        >
+          🖼 Загрузить фото из галереи
+        </button>
+        <button
+          className="primary-btn"
+          style={{ background: 'transparent', color: '#7d8b99', marginTop: 8 }}
+          onClick={handleClose}
+        >
           ← Назад
         </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={handleFileSelect}
+        />
       </div>
     )
   }
@@ -140,7 +182,9 @@ export default function Camera() {
 
       <div className="camera-topbar">
         <button className="camera-close" onClick={handleClose}>✕</button>
-        <button className="camera-close" onClick={handleFlip}>⟳</button>
+        <button className="camera-close" onClick={() => setShowTips(true)}>
+          ⓘ
+        </button>
       </div>
 
       <div className="camera-overlay">
@@ -154,7 +198,6 @@ export default function Camera() {
         {ready ? 'Поместите лицо в овал' : 'Загрузка камеры...'}
       </div>
 
-      {/* Кнопки zoom */}
       <div className="camera-zoom">
         <button
           className="zoom-btn"
@@ -174,13 +217,82 @@ export default function Camera() {
       </div>
 
       <div className="camera-bottom">
+        {/* Кнопка галереи */}
+        <button
+          className="camera-gallery"
+          onClick={() => fileInputRef.current?.click()}
+          aria-label="Загрузить из галереи"
+        >
+          🖼
+        </button>
+
+        {/* Кнопка затвора */}
         <button
           className="camera-shutter"
           onClick={handleShutter}
           disabled={!ready}
           aria-label="Сделать снимок"
         />
+
+        {/* Кнопка переключения камеры */}
+        <button
+          className="camera-gallery"
+          onClick={handleFlip}
+          aria-label="Переключить камеру"
+        >
+          ⟳
+        </button>
       </div>
+
+      {/* Скрытый input для галереи */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={handleFileSelect}
+      />
+
+      {/* Оверлей с подсказками */}
+      {showTips && (
+        <div className="tips-overlay" onClick={() => setShowTips(false)}>
+          <div className="tips-card" onClick={(e) => e.stopPropagation()}>
+            <h2>📸 Как снять хорошее фото</h2>
+            <ul>
+              <li>
+                <strong>Свет</strong> — лицом к окну или лампе.
+                Без вспышки!
+              </li>
+              <li>
+                <strong>Фон</strong> — однотонная стена. Мы уберём её
+                автоматически.
+              </li>
+              <li>
+                <strong>Телефон</strong> — на уровне лица, 40–60 см.
+                Не снизу!
+              </li>
+              <li>
+                <strong>Лицо</strong> — прямо в камеру, рот закрыт,
+                нейтральное выражение.
+              </li>
+              <li>
+                <strong>Одежда</strong> — без головных уборов, снимите
+                очки и цепочки по возможности.
+              </li>
+              <li>
+                <strong>Из галереи</strong> — можно загрузить любое
+                подходящее фото.
+              </li>
+            </ul>
+            <button
+              className="primary-btn"
+              onClick={() => setShowTips(false)}
+            >
+              Понятно
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
