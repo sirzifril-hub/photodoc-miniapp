@@ -24,8 +24,7 @@ const COUNT_OPTIONS = [
 const LAYOUTS = { 1: [1, 1], 2: [1, 2], 4: [2, 2], 6: [2, 3] }
 
 
-// Сжимает фото ДО отправки — экономит трафик и RAM сервера
-function compressImage(blob, maxSide = 1500, quality = 0.85) {
+function compressImage(blob, maxSide = 1200, quality = 0.80) {
   return new Promise((resolve) => {
     const img = new Image()
     img.onload = () => {
@@ -132,33 +131,50 @@ export default function Result() {
     setError(null)
 
     try {
-      // Сжимаем фото ПЕРЕД отправкой
-      const compressed = await compressImage(blob, 1500, 0.85)
+      const compressed = await compressImage(blob, 1200, 0.80)
 
-      const fd = new FormData()
-      fd.append('photo', compressed, 'photo.jpg')
-      fd.append('user_id', String(userId))
-      fd.append('doc_key', docKey)
-      fd.append('count', String(count))
+      // Retry: 3 попытки с паузами 0 / 2 / 5 сек
+      const delays = [0, 2000, 5000]
+      let lastError = null
 
-      const res = await fetch(`${BACKEND_URL}/process`, {
-        method: 'POST',
-        body: fd,
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.detail || `HTTP ${res.status}`)
+      for (let attempt = 0; attempt < delays.length; attempt++) {
+        if (delays[attempt] > 0) {
+          await new Promise((r) => setTimeout(r, delays[attempt]))
+        }
+        try {
+          // FormData каждый раз заново
+          const fd = new FormData()
+          fd.append('photo', compressed, 'photo.jpg')
+          fd.append('user_id', String(userId))
+          fd.append('doc_key', docKey)
+          fd.append('count', String(count))
+
+          const res = await fetch(`${BACKEND_URL}/process`, {
+            method: 'POST',
+            body: fd,
+          })
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}))
+            throw new Error(err.detail || `HTTP ${res.status}`)
+          }
+          navigate('/success', {
+            state: { count, docTitle: DOCS[docKey] || 'Документ' },
+          })
+          return
+        } catch (e) {
+          lastError = e
+          console.warn(`Attempt ${attempt + 1} failed:`, e.message)
+        }
       }
-
-      navigate('/success', {
-        state: { count, docTitle: DOCS[docKey] || 'Документ' },
-      })
+      throw lastError
     } catch (e) {
       console.error(e)
-      let msg = 'Не удалось отправить. Проверь соединение.'
+      let msg = 'Не удалось отправить. Попробуй ещё раз.'
       const err = e.message || ''
       if (err.includes('Failed to fetch') || err.includes('Load failed')) {
-        msg = 'Сервер не отвечает. Проверь интернет и попробуй ещё раз.'
+        msg =
+          'Связь прервалась при отправке. Проверь интернет ' +
+          '(Wi-Fi или мобильный) и нажми «Попробовать снова».'
       } else if (err.includes('timeout') || err.includes('Timeout')) {
         msg = 'Обработка заняла слишком много времени. Попробуй ещё раз.'
       } else if (err.includes('413') || err.includes('too large')) {
