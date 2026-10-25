@@ -24,17 +24,21 @@ const COUNT_OPTIONS = [
 const LAYOUTS = { 1: [1, 1], 2: [1, 2], 4: [2, 2], 6: [2, 3] }
 
 
-function compressImage(blob, maxSide = 1200, quality = 0.80) {
+function compressImage(blob, maxSide = 1500, quality = 0.88) {
   return new Promise((resolve) => {
     const img = new Image()
     img.onload = () => {
       let { width, height } = img
       const long = Math.max(width, height)
-      if (long > maxSide) {
-        const scale = maxSide / long
-        width = Math.round(width * scale)
-        height = Math.round(height * scale)
+      // Маленькие фото не перекодируем: повторное сжатие только мылит
+      if (long <= maxSide) {
+        URL.revokeObjectURL(img.src)
+        resolve(blob)
+        return
       }
+      const scale = maxSide / long
+      width = Math.round(width * scale)
+      height = Math.round(height * scale)
       const canvas = document.createElement('canvas')
       canvas.width = width
       canvas.height = height
@@ -131,7 +135,7 @@ export default function Result() {
     setError(null)
 
     try {
-      const compressed = await compressImage(blob, 1200, 0.80)
+      const compressed = await compressImage(blob, 1500, 0.88)
 
       // Retry: 3 попытки с паузами 0 / 2 / 5 сек
       const delays = [0, 2000, 5000]
